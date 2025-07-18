@@ -81,6 +81,9 @@
             border-radius: 50%;
             margin-top: 2px;
         }
+        .holiday-dot {
+            background-color: #10b981; /* Green dot for holidays */
+        }
         /* Message box styling */
         #messageBox {
             position: fixed;
@@ -229,19 +232,27 @@
                 <!-- Görev Ekleme Formu -->
                 <div class="mb-8">
                     <h2 class="text-xl font-semibold text-gray-700 mb-4">Yeni Görev/Etkinlik Ekle</h2>
-                    <div class="grid grid-cols-1 gap-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label for="eventDate" class="block text-sm font-medium text-gray-700 mb-1">Tarih:</label>
-                            <input type="date" id="eventDate" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                            <label for="startDate" class="block text-sm font-medium text-gray-700 mb-1">Başlangıç Tarihi:</label>
+                            <input type="date" id="startDate" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
                         </div>
                         <div>
-                            <label for="eventTitle" class="block text-sm font-medium text-gray-700 mb-1">Başlık:</label>
-                            <input type="text" id="eventTitle" placeholder="Görev veya etkinlik başlığı" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                            <label for="endDate" class="block text-sm font-medium text-gray-700 mb-1">Bitiş Tarihi:</label>
+                            <input type="date" id="endDate" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
                         </div>
+                    </div>
+                    <div class="mt-4">
+                        <label for="eventTitle" class="block text-sm font-medium text-gray-700 mb-1">Başlık:</label>
+                        <input type="text" id="eventTitle" placeholder="Görev veya etkinlik başlığı" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
                     </div>
                     <div class="mt-4">
                         <label for="eventDescription" class="block text-sm font-medium text-gray-700 mb-1">Açıklama (İsteğe Bağlı):</label>
                         <textarea id="eventDescription" rows="3" placeholder="Detaylı açıklama" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"></textarea>
+                    </div>
+                    <div class="mt-4 flex items-center">
+                        <input type="checkbox" id="isHoliday" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                        <label for="isHoliday" class="ml-2 block text-sm text-gray-900">Tatil mi?</label>
                     </div>
                     <button id="addEventBtn" class="mt-6 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 ease-in-out transform hover:scale-105">
                         Görev/Etkinlik Ekle
@@ -264,6 +275,9 @@
     <div id="messageBox" class="hidden"></div>
 
     <script type="module">
+        // Import necessary Firestore functions directly into this module script
+        import { collection, doc, addDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
         // Ensure Firebase instances are available from the head script
         const app = window.firebaseApp;
         const db = window.firebaseDb;
@@ -272,9 +286,11 @@
         let isAuthReady = window.isAuthReady; // Will be updated by onAuthStateChanged
 
         // DOM elemanlarını seçme
-        const eventDateInput = document.getElementById('eventDate');
+        const startDateInput = document.getElementById('startDate');
+        const endDateInput = document.getElementById('endDate');
         const eventTitleInput = document.getElementById('eventTitle');
         const eventDescriptionInput = document.getElementById('eventDescription');
+        const isHolidayCheckbox = document.getElementById('isHoliday');
         const addEventBtn = document.getElementById('addEventBtn');
         const eventListDiv = document.getElementById('eventList');
         const noEventsMessage = document.getElementById('noEventsMessage');
@@ -309,14 +325,14 @@
 
         // Sayfa yüklendiğinde ve Firebase hazır olduğunda etkinlikleri yükle
         window.loadEvents = () => {
-            if (!isAuthReady) {
-                console.log("Firebase Auth not ready yet. Waiting...");
+            if (!window.isAuthReady || !window.firebaseDb) { // Check global flags
+                console.log("Firebase Auth or DB not ready yet. Waiting for loadEvents to be called again.");
                 return;
             }
 
             // Public collection for shared calendar events
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            const eventsCollectionRef = collection(db, `artifacts/${appId}/public/data/calendarEvents`);
+            const eventsCollectionRef = collection(window.firebaseDb, `artifacts/${appId}/public/data/calendarEvents`);
 
             // Listen for real-time updates
             onSnapshot(eventsCollectionRef, (snapshot) => {
@@ -335,12 +351,15 @@
 
         // Event Listeners
         document.addEventListener('DOMContentLoaded', () => {
-            // Set default date to today for the input field
+            // Set default dates to today for the input fields
             const today = new Date();
             const year = today.getFullYear();
             const month = String(today.getMonth() + 1).padStart(2, '0');
             const day = String(today.getDate()).padStart(2, '0');
-            eventDateInput.value = `${year}-${month}-${day}`;
+            const todayFormatted = `${year}-${month}-${day}`;
+            
+            startDateInput.value = todayFormatted;
+            endDateInput.value = todayFormatted; // End date defaults to start date
 
             // Display initial user name
             if (currentUserName) {
@@ -354,9 +373,10 @@
             renderCalendar();
 
             // Check if auth is ready when DOM is loaded (in case auth resolves quickly)
-            if (window.isAuthReady) {
-                window.loadEvents();
-            }
+            // This part is crucial for initial load. loadEvents will be called by onAuthStateChanged.
+            // If onAuthStateChanged already fired, we might need to call it manually.
+            // However, the onAuthStateChanged listener in the head script ensures loadEvents is called once auth is ready.
+            // So, no explicit call here, relying on the listener.
         });
 
         addEventBtn.addEventListener('click', addEvent);
@@ -397,38 +417,50 @@
          * Yeni bir etkinlik veya görev ekler ve Firestore'a kaydeder.
          */
         async function addEvent() {
-            if (!isAuthReady || !currentUserId) {
+            // Check global flags for Firebase readiness
+            if (!window.isAuthReady || !window.currentUserId || !window.firebaseDb) {
                 showMessage("Uygulama henüz hazır değil veya kimlik doğrulama tamamlanmadı. Lütfen bekleyin.", 4000);
+                console.warn("Attempted to add event before Firebase was ready. isAuthReady:", window.isAuthReady, "currentUserId:", window.currentUserId, "firebaseDb:", window.firebaseDb);
                 return;
             }
 
-            const date = eventDateInput.value;
+            const startDate = startDateInput.value;
+            const endDate = endDateInput.value;
             const title = eventTitleInput.value.trim();
             const description = eventDescriptionInput.value.trim();
+            const isHoliday = isHolidayCheckbox.checked;
             const userName = currentUserName || 'Bilinmiyor'; // Use stored user name or fallback
 
-            if (!date || !title) {
-                showMessage('Lütfen tarih ve başlık alanlarını doldurun.', 3000);
+            if (!startDate || !endDate || !title) {
+                showMessage('Lütfen başlangıç tarihi, bitiş tarihi ve başlık alanlarını doldurun.', 3000);
+                return;
+            }
+
+            if (new Date(startDate) > new Date(endDate)) {
+                showMessage('Bitiş tarihi başlangıç tarihinden önce olamaz.', 3000);
                 return;
             }
 
             const event = {
-                date: date,
+                startDate: startDate,
+                endDate: endDate,
                 title: title,
                 description: description,
+                isHoliday: isHoliday,
                 createdAt: new Date().toISOString(), // Add timestamp
-                createdBy: currentUserId, // Track who created it (Firebase UID)
+                createdBy: window.currentUserId, // Track who created it (Firebase UID)
                 creatorName: userName // Track who created it (User provided name)
             };
 
             try {
                 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-                const eventsCollectionRef = collection(db, `artifacts/${appId}/public/data/calendarEvents`);
+                const eventsCollectionRef = collection(window.firebaseDb, `artifacts/${appId}/public/data/calendarEvents`);
                 await addDoc(eventsCollectionRef, event);
                 showMessage('Görev/Etkinlik başarıyla eklendi!', 3000);
                 // Clear form
                 eventTitleInput.value = '';
                 eventDescriptionInput.value = '';
+                isHolidayCheckbox.checked = false;
                 // No need to call renderEvents explicitly, onSnapshot will handle it
             } catch (e) {
                 console.error("Error adding document: ", e);
@@ -441,15 +473,16 @@
          * @param {Event} e - Tıklama olayı.
          */
         async function deleteEvent(e) {
-            if (!isAuthReady || !currentUserId) {
+            if (!window.isAuthReady || !window.currentUserId || !window.firebaseDb) {
                 showMessage("Uygulama henüz hazır değil veya kimlik doğrulama tamamlanmadı. Lütfen bekleyin.", 4000);
+                console.warn("Attempted to delete event before Firebase was ready. isAuthReady:", window.isAuthReady, "currentUserId:", window.currentUserId, "firebaseDb:", window.firebaseDb);
                 return;
             }
 
             const eventId = e.currentTarget.dataset.id;
             try {
                 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-                await deleteDoc(doc(db, `artifacts/${appId}/public/data/calendarEvents`, eventId));
+                await deleteDoc(doc(window.firebaseDb, `artifacts/${appId}/public/data/calendarEvents`, eventId));
                 showMessage('Görev/Etkinlik başarıyla silindi!', 3000);
                 // No need to call renderEvents explicitly, onSnapshot will handle it
             } catch (e) {
@@ -469,7 +502,18 @@
 
             let filteredEvents = eventsToRender;
             if (filterDate) {
-                filteredEvents = eventsToRender.filter(event => event.date === filterDate);
+                // Filter events that span the selected date
+                filteredEvents = eventsToRender.filter(event => {
+                    const eventStartDate = new Date(event.startDate);
+                    const eventEndDate = new Date(event.endDate);
+                    const filterDateObj = new Date(filterDate);
+                    // Check if currentDateObj is within the event's start and end date (inclusive)
+                    // Set hours to 0 for accurate date comparison
+                    eventStartDate.setHours(0,0,0,0);
+                    eventEndDate.setHours(0,0,0,0);
+                    filterDateObj.setHours(0,0,0,0);
+                    return filterDateObj >= eventStartDate && filterDateObj <= eventEndDate;
+                });
             }
 
             if (filteredEvents.length === 0) {
@@ -480,17 +524,17 @@
                 noEventsMessage.style.display = 'none';
             }
 
-            // Etkinlikleri tarihe ve ardından başlığa göre sırala
+            // Etkinlikleri başlangıç tarihine ve ardından başlığa göre sırala
             filteredEvents.sort((a, b) => {
-                if (a.date === b.date) {
+                if (a.startDate === b.startDate) {
                     return a.title.localeCompare(b.title);
                 }
-                return new Date(a.date) - new Date(b.date);
+                return new Date(a.startDate) - new Date(b.startDate);
             });
 
-            // Tarihe göre gruplandır
+            // Tarihe göre gruplandır (başlangıç tarihine göre)
             const groupedEvents = filteredEvents.reduce((acc, event) => {
-                (acc[event.date] = acc[event.date] || []).push(event);
+                (acc[event.startDate] = acc[event.startDate] || []).push(event);
                 return acc;
             }, {});
 
@@ -507,9 +551,15 @@
                     eventCard.className = 'bg-gray-50 p-4 rounded-lg shadow-sm border border-gray-200 flex justify-between items-start';
                     // Display creatorName if available, else fallback to full createdBy UID
                     const creatorInfo = event.creatorName || event.createdBy || 'Bilinmiyor';
+                    const dateRange = (event.startDate === event.endDate) ?
+                                      new Date(event.startDate).toLocaleDateString('tr-TR') :
+                                      `${new Date(event.startDate).toLocaleDateString('tr-TR')} - ${new Date(event.endDate).toLocaleDateString('tr-TR')}`;
+                    const holidayTag = event.isHoliday ? '<span class="ml-2 px-2 py-0.5 bg-green-200 text-green-800 text-xs font-semibold rounded-full">TATİL</span>' : '';
+
                     eventCard.innerHTML = `
                         <div>
-                            <p class="text-md font-medium text-gray-900">${event.title}</p>
+                            <p class="text-md font-medium text-gray-900">${event.title} ${holidayTag}</p>
+                            <p class="text-sm text-gray-700 mt-1">Tarih: ${dateRange}</p>
                             ${event.description ? `<p class="text-sm text-gray-600 mt-1">${event.description}</p>` : ''}
                             <p class="text-xs text-gray-400 mt-1">Ekleyen: ${creatorInfo}</p>
                         </div>
@@ -562,11 +612,27 @@
                 dayNumberSpan.textContent = i;
                 dayDiv.appendChild(dayNumberSpan);
 
-                // Add event dot if there are events on this day
-                const eventsOnThisDay = allEvents.filter(event => event.date === formattedDate);
+                // Add event dot if there are events that span this day
+                const eventsOnThisDay = allEvents.filter(event => {
+                    const eventStartDate = new Date(event.startDate);
+                    const eventEndDate = new Date(event.endDate);
+                    const currentDateObj = new Date(formattedDate);
+                    // Set hours to 0 for accurate date comparison
+                    eventStartDate.setHours(0,0,0,0);
+                    eventEndDate.setHours(0,0,0,0);
+                    currentDateObj.setHours(0,0,0,0);
+                    // Check if currentDateObj is within the event's start and end date (inclusive)
+                    return currentDateObj >= eventStartDate && currentDateObj <= eventEndDate;
+                });
+
                 if (eventsOnThisDay.length > 0) {
                     const eventDot = document.createElement('div');
-                    eventDot.className = 'event-dot';
+                    eventDot.className = 'event-dot'; // Default dot (red)
+                    // Check if any of the events on this day are holidays
+                    const isAnyHoliday = eventsOnThisDay.some(event => event.isHoliday);
+                    if (isAnyHoliday) {
+                        eventDot.classList.add('holiday-dot'); // Add green dot for holidays
+                    }
                     dayDiv.appendChild(eventDot);
                     dayDiv.classList.add('has-event');
                 }
@@ -587,7 +653,8 @@
                 dayDiv.dataset.date = formattedDate; // Store full date for selection
                 dayDiv.addEventListener('click', () => {
                     selectedDate = formattedDate;
-                    eventDateInput.value = formattedDate; // Update form date input
+                    startDateInput.value = formattedDate; // Update form start date input
+                    endDateInput.value = formattedDate; // Update form end date input to selected date
                     renderCalendar(); // Re-render to highlight selected date
                     renderEvents(allEvents, selectedDate); // Filter events for selected date
                 });

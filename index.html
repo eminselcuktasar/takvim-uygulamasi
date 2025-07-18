@@ -120,14 +120,63 @@
 
         let currentUserId = null;
         let isAuthReady = false;
-
-        // Expose Firebase instances globally for use in the main script block
+        
+        // Expose Firebase instances and global state variables immediately
         window.firebaseApp = app;
         window.firebaseDb = db;
         window.firebaseAuth = auth;
         window.currentUserId = currentUserId; // Will be updated by onAuthStateChanged
         window.isAuthReady = isAuthReady; // Will be updated by onAuthStateChanged
         window.initialAuthToken = initialAuthToken; // Pass the token
+        window.allEvents = []; // Initialize globally to prevent undefined errors
+        window.selectedDate = null; // Initialize globally
+
+        // Function to show custom messages
+        function showMessage(message, duration = 3000) {
+            const messageBox = document.getElementById('messageBox');
+            if (messageBox) { // Ensure messageBox exists before trying to use it
+                messageBox.textContent = message;
+                messageBox.classList.add('show');
+                messageBox.classList.remove('hidden');
+                setTimeout(() => {
+                    messageBox.classList.remove('show');
+                    messageBox.classList.add('hidden');
+                }, duration);
+            } else {
+                console.warn("MessageBox element not found. Message:", message);
+            }
+        }
+        window.showMessage = showMessage; // Expose globally
+
+        // Sayfa yüklendiğinde ve Firebase hazır olduğunda etkinlikleri yükle
+        window.loadEvents = () => {
+            if (!isAuthReady || !db) { // Check local flags for this script
+                console.log("Firebase Auth or DB not ready yet. Waiting for loadEvents to be called again.");
+                return;
+            }
+
+            // Public collection for shared calendar events
+            const eventsCollectionRef = collection(db, `artifacts/${appId}/public/data/calendarEvents`);
+
+            // Listen for real-time updates
+            onSnapshot(eventsCollectionRef, (snapshot) => {
+                window.allEvents = snapshot.docs.map(doc => ({ // Assign to window.allEvents
+                    id: doc.id,
+                    ...doc.data()
+                }));
+                console.log("Events loaded/updated from Firestore:", window.allEvents);
+                // Ensure DOM elements for rendering are available
+                if (document.getElementById('calendarDays') && document.getElementById('eventList')) {
+                    renderCalendar(); // Re-render calendar to update event dots
+                    renderEvents(window.allEvents, window.selectedDate); // Re-render event list, use window.allEvents
+                } else {
+                    console.warn("DOM elements for calendar/event list not yet available. Waiting for DOMContentLoaded.");
+                }
+            }, (error) => {
+                console.error("Error fetching events from Firestore:", error);
+                showMessage("Etkinlikler yüklenirken bir hata oluştu.", 5000);
+            });
+        };
 
         // Listen for authentication state changes
         onAuthStateChanged(auth, async (user) => {
@@ -162,14 +211,21 @@
                     }
                 }
             }
-            window.currentUserId = currentUserId; // Update global variable
-            window.isAuthReady = true; // Auth is now ready
-            document.getElementById('userIdDisplay').textContent = `Kullanıcı ID: ${currentUserId || 'Misafir'}`;
-            // Once auth is ready, load events (which sets up onSnapshot)
-            if (window.loadEvents) { // Ensure loadEvents function is defined in the main script
-                window.loadEvents();
+            // Update global variables after auth state is determined
+            window.currentUserId = currentUserId;
+            window.isAuthReady = true;
+            
+            // Update UI display
+            const userIdDisplay = document.getElementById('userIdDisplay');
+            if (userIdDisplay) {
+                userIdDisplay.textContent = `Kullanıcı ID: ${currentUserId || 'Misafir'}`;
             }
+
+            // Once auth is ready, load events
+            window.loadEvents();
         });
+
+        // DOMContentLoaded is handled in the main script block to ensure all elements are ready
     </script>
 </head>
 <body class="flex items-center justify-center min-h-screen p-4">
@@ -299,7 +355,7 @@
         const prevMonthBtn = document.getElementById('prevMonthBtn');
         const nextMonthBtn = document.getElementById('nextMonthBtn');
         const userIdDisplay = document.getElementById('userIdDisplay');
-        const messageBox = document.getElementById('messageBox');
+        const messageBox = document.getElementById('messageBox'); // Get messageBox here for local use
 
         const userNameInput = document.getElementById('userNameInput');
         const saveUserNameBtn = document.getElementById('saveUserNameBtn');
@@ -309,45 +365,21 @@
 
         let currentMonth = new Date().getMonth();
         let currentYear = new Date().getFullYear();
-        let allEvents = []; // To store all events fetched from Firestore
-        let selectedDate = null; // To store the currently selected date in the calendar
+        // allEvents and selectedDate are now managed globally in the head script, so no need to redeclare here.
+        // let allEvents = []; // To store all events fetched from Firestore
+        // let selectedDate = null; // To store the currently selected date in the calendar
 
-        // Function to show custom messages
+        // Function to show custom messages (now locally scoped if needed, but still using the global one)
         function showMessage(message, duration = 3000) {
-            messageBox.textContent = message;
-            messageBox.classList.add('show');
-            messageBox.classList.remove('hidden');
-            setTimeout(() => {
-                messageBox.classList.remove('show');
-                messageBox.classList.add('hidden');
-            }, duration);
+            // Re-using the global showMessage from the head script, or define a local one if not available globally.
+            // For this structure, it's safer to ensure it's defined and used consistently.
+            // The global showMessage in the head script already handles messageBox existence.
+            window.showMessage(message, duration);
         }
 
         // Sayfa yüklendiğinde ve Firebase hazır olduğunda etkinlikleri yükle
-        window.loadEvents = () => {
-            if (!window.isAuthReady || !window.firebaseDb) { // Check global flags
-                console.log("Firebase Auth or DB not ready yet. Waiting for loadEvents to be called again.");
-                return;
-            }
-
-            // Public collection for shared calendar events
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            const eventsCollectionRef = collection(window.firebaseDb, `artifacts/${appId}/public/data/calendarEvents`);
-
-            // Listen for real-time updates
-            onSnapshot(eventsCollectionRef, (snapshot) => {
-                allEvents = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
-                }));
-                console.log("Events loaded/updated from Firestore:", allEvents);
-                renderCalendar(); // Re-render calendar to update event dots
-                renderEvents(allEvents, selectedDate); // Re-render event list
-            }, (error) => {
-                console.error("Error fetching events from Firestore:", error);
-                showMessage("Etkinlikler yüklenirken bir hata oluştu.", 5000);
-            });
-        };
+        // This function is now defined in the head script, so we just need to ensure it's called.
+        // The onAuthStateChanged listener in the head script already calls window.loadEvents().
 
         // Event Listeners
         document.addEventListener('DOMContentLoaded', () => {
@@ -369,14 +401,11 @@
                 displayedUserName.textContent = 'Henüz Ayarlanmadı';
             }
 
-            // Initial render of calendar
+            // Initial render of calendar (will be updated by loadEvents once data arrives)
             renderCalendar();
 
-            // Check if auth is ready when DOM is loaded (in case auth resolves quickly)
-            // This part is crucial for initial load. loadEvents will be called by onAuthStateChanged.
-            // If onAuthStateChanged already fired, we might need to call it manually.
-            // However, the onAuthStateChanged listener in the head script ensures loadEvents is called once auth is ready.
-            // So, no explicit call here, relying on the listener.
+            // No explicit call to loadEvents here, relying on onAuthStateChanged in head script
+            // to call window.loadEvents() once authentication is complete.
         });
 
         addEventBtn.addEventListener('click', addEvent);
@@ -399,8 +428,8 @@
                 currentYear--;
             }
             renderCalendar();
-            selectedDate = null; // Clear selected date when changing month
-            renderEvents(allEvents, selectedDate); // Show all events for the new month
+            window.selectedDate = null; // Clear selected date when changing month
+            renderEvents(window.allEvents, window.selectedDate); // Use global allEvents
         });
         nextMonthBtn.addEventListener('click', () => {
             currentMonth++;
@@ -409,15 +438,15 @@
                 currentYear++;
             }
             renderCalendar();
-            selectedDate = null; // Clear selected date when changing month
-            renderEvents(allEvents, selectedDate); // Show all events for the new month
+            window.selectedDate = null; // Clear selected date when changing month
+            renderEvents(window.allEvents, window.selectedDate); // Use global allEvents
         });
 
         /**
          * Yeni bir etkinlik veya görev ekler ve Firestore'a kaydeder.
          */
         async function addEvent() {
-            // Check global flags for Firebase readiness
+            // Use global flags for Firebase readiness
             if (!window.isAuthReady || !window.currentUserId || !window.firebaseDb) {
                 showMessage("Uygulama henüz hazır değil veya kimlik doğrulama tamamlanmadı. Lütfen bekleyin.", 4000);
                 console.warn("Attempted to add event before Firebase was ready. isAuthReady:", window.isAuthReady, "currentUserId:", window.currentUserId, "firebaseDb:", window.firebaseDb);
@@ -498,6 +527,14 @@
          * @param {string} filterDate - Filtrelenecek tarih (YYYY-MM-DD formatında), null ise tümü.
          */
         function renderEvents(eventsToRender, filterDate = null) {
+            const eventListDiv = document.getElementById('eventList');
+            const noEventsMessage = document.getElementById('noEventsMessage');
+
+            if (!eventListDiv || !noEventsMessage) {
+                console.warn("Event list DOM elements not found during renderEvents. Skipping render.");
+                return;
+            }
+
             eventListDiv.innerHTML = ''; // Mevcut listeyi temizle
 
             let filteredEvents = eventsToRender;
@@ -507,7 +544,6 @@
                     const eventStartDate = new Date(event.startDate);
                     const eventEndDate = new Date(event.endDate);
                     const filterDateObj = new Date(filterDate);
-                    // Check if currentDateObj is within the event's start and end date (inclusive)
                     // Set hours to 0 for accurate date comparison
                     eventStartDate.setHours(0,0,0,0);
                     eventEndDate.setHours(0,0,0,0);
@@ -583,6 +619,13 @@
          * Takvimi oluşturur ve günleri işaretler.
          */
         function renderCalendar() {
+            const calendarDaysDiv = document.getElementById('calendarDays');
+            const currentMonthYearSpan = document.getElementById('currentMonthYear');
+            if (!calendarDaysDiv || !currentMonthYearSpan) {
+                console.warn("Calendar DOM elements not found during renderCalendar. Skipping render.");
+                return;
+            }
+
             calendarDaysDiv.innerHTML = '';
             currentMonthYearSpan.textContent = new Date(currentYear, currentMonth).toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' });
 
@@ -613,7 +656,7 @@
                 dayDiv.appendChild(dayNumberSpan);
 
                 // Add event dot if there are events that span this day
-                const eventsOnThisDay = allEvents.filter(event => {
+                const eventsOnThisDay = window.allEvents.filter(event => { // Use global allEvents
                     const eventStartDate = new Date(event.startDate);
                     const eventEndDate = new Date(event.endDate);
                     const currentDateObj = new Date(formattedDate);
@@ -646,17 +689,17 @@
                 }
 
                 // Highlight selected date
-                if (selectedDate === formattedDate) {
+                if (window.selectedDate === formattedDate) { // Use global selectedDate
                     dayDiv.classList.add('selected-date');
                 }
 
                 dayDiv.dataset.date = formattedDate; // Store full date for selection
                 dayDiv.addEventListener('click', () => {
-                    selectedDate = formattedDate;
+                    window.selectedDate = formattedDate; // Update global selectedDate
                     startDateInput.value = formattedDate; // Update form start date input
                     endDateInput.value = formattedDate; // Update form end date input to selected date
                     renderCalendar(); // Re-render to highlight selected date
-                    renderEvents(allEvents, selectedDate); // Filter events for selected date
+                    renderEvents(window.allEvents, window.selectedDate); // Filter events for selected date
                 });
 
                 calendarDaysDiv.appendChild(dayDiv);
